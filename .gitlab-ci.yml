@@ -25,7 +25,6 @@ test:
 
 build:
   stage: build
-  needs: []
   script:
     - go build -o terraform-provider-hestiacp .
   artifacts:
