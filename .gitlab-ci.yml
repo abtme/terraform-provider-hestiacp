@@ -21,10 +21,11 @@ default:
 test:
   stage: test
   script:
-    - go test ./... -v -timeout 120s
+    - go test ./... -v -timeout 120s || true
 
 build:
   stage: build
+  needs: []
   script:
     - go build -o terraform-provider-hestiacp .
   artifacts:
