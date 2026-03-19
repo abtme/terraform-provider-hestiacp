@@ -12,6 +12,10 @@ cache:
   paths:
     - .go/
 
+default:
+  tags:
+    - localdocker
+
 test:
   stage: test
   script:
