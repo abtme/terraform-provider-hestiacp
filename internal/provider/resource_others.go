@@ -1,0 +1,474 @@
+package provider
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/your-org/terraform-provider-hestiacp/internal/client"
+)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DATABASE
+// ═══════════════════════════════════════════════════════════════════════════
+
+var _ resource.Resource = &DatabaseResource{}
+
+func NewDatabaseResource() resource.Resource { return &DatabaseResource{} }
+
+type DatabaseResource struct{ client *client.Client }
+
+type DatabaseResourceModel struct {
+	ID         types.String `tfsdk:"id"`
+	User       types.String `tfsdk:"user"`
+	DbName     types.String `tfsdk:"db_name"`
+	DbUser     types.String `tfsdk:"db_user"`
+	DbPassword types.String `tfsdk:"db_password"`
+	DbType     types.String `tfsdk:"db_type"`
+}
+
+func (r *DatabaseResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_database"
+}
+
+func (r *DatabaseResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Manages a HestiaCP database and database user.",
+		Attributes: map[string]schema.Attribute{
+			"id":          schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"user":        schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"db_name":     schema.StringAttribute{Required: true, MarkdownDescription: "Database name (without user prefix).", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"db_user":     schema.StringAttribute{Required: true, MarkdownDescription: "Database username (without user prefix).", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"db_password": schema.StringAttribute{Required: true, Sensitive: true},
+			"db_type":     schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("mysql"), MarkdownDescription: "Database type: `mysql` or `pgsql`. Defaults to `mysql`."},
+		},
+	}
+}
+
+func (r *DatabaseResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
+	c, ok := req.ProviderData.(*client.Client)
+	if !ok {
+		resp.Diagnostics.AddError("Unexpected provider data", fmt.Sprintf("got %T", req.ProviderData))
+		return
+	}
+	r.client = c
+}
+
+func (r *DatabaseResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan DatabaseResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.client.CreateDatabase(plan.User.ValueString(), plan.DbName.ValueString(), plan.DbUser.ValueString(), plan.DbPassword.ValueString(), plan.DbType.ValueString()); err != nil {
+		resp.Diagnostics.AddError("Error creating database", err.Error())
+		return
+	}
+	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", plan.User.ValueString(), plan.DbName.ValueString()))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *DatabaseResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state DatabaseResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	db, err := r.client.ReadDatabase(state.User.ValueString(), state.DbName.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading database", err.Error())
+		return
+	}
+	if db == nil {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	state.DbType = types.StringValue(db.Type)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+func (r *DatabaseResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan DatabaseResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *DatabaseResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state DatabaseResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.client.DeleteDatabase(state.User.ValueString(), state.DbName.ValueString()); err != nil {
+		resp.Diagnostics.AddError("Error deleting database", err.Error())
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EMAIL DOMAIN
+// ═══════════════════════════════════════════════════════════════════════════
+
+var _ resource.Resource = &EmailDomainResource{}
+
+func NewEmailDomainResource() resource.Resource { return &EmailDomainResource{} }
+
+type EmailDomainResource struct{ client *client.Client }
+
+type EmailDomainResourceModel struct {
+	ID     types.String `tfsdk:"id"`
+	User   types.String `tfsdk:"user"`
+	Domain types.String `tfsdk:"domain"`
+}
+
+func (r *EmailDomainResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_email_domain"
+}
+
+func (r *EmailDomainResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Manages a mail domain in HestiaCP.",
+		Attributes: map[string]schema.Attribute{
+			"id":     schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"user":   schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"domain": schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+		},
+	}
+}
+
+func (r *EmailDomainResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
+	c, ok := req.ProviderData.(*client.Client)
+	if !ok {
+		resp.Diagnostics.AddError("Unexpected provider data", fmt.Sprintf("got %T", req.ProviderData))
+		return
+	}
+	r.client = c
+}
+
+func (r *EmailDomainResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan EmailDomainResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.client.CreateMailDomain(plan.User.ValueString(), plan.Domain.ValueString()); err != nil {
+		resp.Diagnostics.AddError("Error creating mail domain", err.Error())
+		return
+	}
+	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", plan.User.ValueString(), plan.Domain.ValueString()))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *EmailDomainResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state EmailDomainResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	md, err := r.client.ReadMailDomain(state.User.ValueString(), state.Domain.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading mail domain", err.Error())
+		return
+	}
+	if md == nil {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+func (r *EmailDomainResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan EmailDomainResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *EmailDomainResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state EmailDomainResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.client.DeleteMailDomain(state.User.ValueString(), state.Domain.ValueString()); err != nil {
+		resp.Diagnostics.AddError("Error deleting mail domain", err.Error())
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EMAIL ACCOUNT
+// ═══════════════════════════════════════════════════════════════════════════
+
+var _ resource.Resource = &EmailAccountResource{}
+
+func NewEmailAccountResource() resource.Resource { return &EmailAccountResource{} }
+
+type EmailAccountResource struct{ client *client.Client }
+
+type EmailAccountResourceModel struct {
+	ID       types.String `tfsdk:"id"`
+	User     types.String `tfsdk:"user"`
+	Domain   types.String `tfsdk:"domain"`
+	Account  types.String `tfsdk:"account"`
+	Password types.String `tfsdk:"password"`
+	Quota    types.Int64  `tfsdk:"quota"`
+}
+
+func (r *EmailAccountResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_email_account"
+}
+
+func (r *EmailAccountResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Manages a mail account (mailbox) within a HestiaCP mail domain.",
+		Attributes: map[string]schema.Attribute{
+			"id":       schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"user":     schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"domain":   schema.StringAttribute{Required: true, MarkdownDescription: "Mail domain this account belongs to.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"account":  schema.StringAttribute{Required: true, MarkdownDescription: "Mailbox name (the part before the @).", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"password": schema.StringAttribute{Required: true, Sensitive: true},
+			"quota": schema.Int64Attribute{
+				Optional:            true,
+				Computed:            true,
+				Default:             int64default.StaticInt64(0),
+				MarkdownDescription: "Mailbox quota in MB. `0` means unlimited.",
+			},
+		},
+	}
+}
+
+func (r *EmailAccountResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
+	c, ok := req.ProviderData.(*client.Client)
+	if !ok {
+		resp.Diagnostics.AddError("Unexpected provider data", fmt.Sprintf("got %T", req.ProviderData))
+		return
+	}
+	r.client = c
+}
+
+func (r *EmailAccountResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan EmailAccountResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.client.CreateMailAccount(plan.User.ValueString(), plan.Domain.ValueString(), plan.Account.ValueString(), plan.Password.ValueString(), int(plan.Quota.ValueInt64())); err != nil {
+		resp.Diagnostics.AddError("Error creating mail account", err.Error())
+		return
+	}
+	plan.ID = types.StringValue(fmt.Sprintf("%s@%s", plan.Account.ValueString(), plan.Domain.ValueString()))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *EmailAccountResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state EmailAccountResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	ma, err := r.client.ReadMailAccount(state.User.ValueString(), state.Domain.ValueString(), state.Account.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading mail account", err.Error())
+		return
+	}
+	if ma == nil {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+func (r *EmailAccountResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan EmailAccountResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *EmailAccountResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state EmailAccountResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.client.DeleteMailAccount(state.User.ValueString(), state.Domain.ValueString(), state.Account.ValueString()); err != nil {
+		resp.Diagnostics.AddError("Error deleting mail account", err.Error())
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SSL (Let's Encrypt)
+// ═══════════════════════════════════════════════════════════════════════════
+
+var _ resource.Resource = &SSLResource{}
+
+func NewSSLResource() resource.Resource { return &SSLResource{} }
+
+type SSLResource struct{ client *client.Client }
+
+type SSLResourceModel struct {
+	ID      types.String `tfsdk:"id"`
+	User    types.String `tfsdk:"user"`
+	Domain  types.String `tfsdk:"domain"`
+	Aliases types.String `tfsdk:"aliases"`
+}
+
+func (r *SSLResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_ssl"
+}
+
+func (r *SSLResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Issues a Let's Encrypt SSL certificate for a HestiaCP web domain.",
+		Attributes: map[string]schema.Attribute{
+			"id":      schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"user":    schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"domain":  schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"aliases": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString(""), MarkdownDescription: "Comma-separated list of additional SANs, e.g. `www.example.com,mail.example.com`."},
+		},
+	}
+}
+
+func (r *SSLResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
+	c, ok := req.ProviderData.(*client.Client)
+	if !ok {
+		resp.Diagnostics.AddError("Unexpected provider data", fmt.Sprintf("got %T", req.ProviderData))
+		return
+	}
+	r.client = c
+}
+
+func (r *SSLResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan SSLResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.client.CreateSSL(plan.User.ValueString(), plan.Domain.ValueString(), plan.Aliases.ValueString()); err != nil {
+		resp.Diagnostics.AddError("Error issuing SSL certificate", err.Error())
+		return
+	}
+	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", plan.User.ValueString(), plan.Domain.ValueString()))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *SSLResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state SSLResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	d, err := r.client.ReadWebDomain(state.User.ValueString(), state.Domain.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading SSL state", err.Error())
+		return
+	}
+	if d == nil || d.SSL != "yes" {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+func (r *SSLResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan SSLResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *SSLResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state SSLResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.client.DeleteSSL(state.User.ValueString(), state.Domain.ValueString()); err != nil {
+		resp.Diagnostics.AddError("Error deleting SSL certificate", err.Error())
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BACKUP
+// ═══════════════════════════════════════════════════════════════════════════
+
+var _ resource.Resource = &BackupResource{}
+
+func NewBackupResource() resource.Resource { return &BackupResource{} }
+
+type BackupResource struct{ client *client.Client }
+
+type BackupResourceModel struct {
+	ID   types.String `tfsdk:"id"`
+	User types.String `tfsdk:"user"`
+}
+
+func (r *BackupResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_backup"
+}
+
+func (r *BackupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Triggers a HestiaCP user backup. Each apply creates a new backup snapshot.",
+		Attributes: map[string]schema.Attribute{
+			"id":   schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"user": schema.StringAttribute{Required: true, MarkdownDescription: "HestiaCP username to back up.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+		},
+	}
+}
+
+func (r *BackupResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
+	c, ok := req.ProviderData.(*client.Client)
+	if !ok {
+		resp.Diagnostics.AddError("Unexpected provider data", fmt.Sprintf("got %T", req.ProviderData))
+		return
+	}
+	r.client = c
+}
+
+func (r *BackupResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan BackupResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.client.CreateBackup(plan.User.ValueString()); err != nil {
+		resp.Diagnostics.AddError("Error creating backup", err.Error())
+		return
+	}
+	plan.ID = types.StringValue(plan.User.ValueString())
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *BackupResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state BackupResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+func (r *BackupResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan BackupResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *BackupResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
+	// Backups are not deleted by Terraform — they are immutable snapshots.
+}

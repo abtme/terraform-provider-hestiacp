@@ -1,93 +1,145 @@
 # terraform-provider-hestiacp
 
+A Terraform provider for [HestiaCP](https://hestiacp.com/) built with the
+[Terraform Plugin Framework](https://github.com/hashicorp/terraform-plugin-framework).
 
+## Requirements
 
-## Getting started
+| Tool      | Version  |
+|-----------|----------|
+| Go        | ≥ 1.21   |
+| Terraform | ≥ 1.3.0  |
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Resources
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+| Resource                      | Description                              |
+|-------------------------------|------------------------------------------|
+| `hestiacp_user`               | User account                             |
+| `hestiacp_web_domain`         | Web domain / virtual host                |
+| `hestiacp_dns_zone`           | DNS zone                                 |
+| `hestiacp_dns_record`         | Individual DNS record (A, CNAME, MX …)  |
+| `hestiacp_database`           | MySQL / PostgreSQL database + user       |
+| `hestiacp_email_domain`       | Mail domain                              |
+| `hestiacp_email_account`      | Mailbox                                  |
+| `hestiacp_ssl`                | Let's Encrypt SSL certificate            |
+| `hestiacp_backup`             | User backup snapshot                     |
 
-## Add your files
+## Authentication
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+HestiaCP v1.6+ uses `ACCESS_KEY:SECRET_KEY` pairs.
 
+Create a key on your server:
+
+```bash
+v-add-access-key admin '*' terraform json
 ```
-cd existing_repo
-git remote add origin https://gitlab.turnbull.uk/awxgit/terraform-provider-hestiacp.git
-git branch -M main
-git push -uf origin main
+
+Then configure the provider:
+
+```hcl
+provider "hestiacp" {
+  url        = "https://myserver.com:8083"
+  access_key = "ACCESSKEY:SECRETKEY"
+}
 ```
 
-## Integrate with your tools
+Or via environment variables:
 
-* [Set up project integrations](https://gitlab.turnbull.uk/awxgit/terraform-provider-hestiacp/-/settings/integrations)
+```bash
+export HESTIACP_URL="https://myserver.com:8083"
+export HESTIACP_ACCESS_KEY="ACCESSKEY:SECRETKEY"
+```
 
-## Collaborate with your team
+> **Important:** Before the provider can reach the API from a remote machine,
+> whitelist the runner's IP under *Server Settings → API* in the HestiaCP UI,
+> or set the allowed list to `allow-all` for testing.
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## Quick Start
 
-## Test and Deploy
+```hcl
+terraform {
+  required_providers {
+    hestiacp = {
+      source  = "registry.terraform.io/your-org/hestiacp"
+      version = "~> 0.1"
+    }
+  }
+}
 
-Use the built-in continuous integration in GitLab.
+provider "hestiacp" {}   # reads HESTIACP_URL + HESTIACP_ACCESS_KEY
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+resource "hestiacp_user" "alice" {
+  username   = "alice"
+  password   = "S3cur3P@ss!"
+  email      = "alice@example.com"
+  package    = "default"
+}
 
-***
+resource "hestiacp_web_domain" "site" {
+  user   = hestiacp_user.alice.username
+  domain = "example.com"
+}
 
-# Editing this README
+resource "hestiacp_ssl" "site" {
+  user   = hestiacp_user.alice.username
+  domain = hestiacp_web_domain.site.domain
+}
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## Local Development
 
-## Suggestions for a good README
+```bash
+# Build and install into ~/.terraform.d/plugins/…
+make install
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+# Point a test config at the local binary
+cat > ~/.terraformrc <<'EOF'
+provider_installation {
+  dev_overrides {
+    "registry.terraform.io/your-org/hestiacp" = "/home/<you>/.terraform.d/plugins/…"
+  }
+  direct {}
+}
+EOF
 
-## Name
-Choose a self-explaining name for your project.
+terraform -chdir=examples/provider init
+terraform -chdir=examples/provider apply
+```
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## Running Tests
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Unit tests (no live server needed):
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+```bash
+make test
+```
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+Acceptance tests (requires a real HestiaCP instance):
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```bash
+export HESTIACP_URL="https://myserver.com:8083"
+export HESTIACP_ACCESS_KEY="ACCESSKEY:SECRETKEY"
+make testacc
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+## HestiaCP API Return Codes
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+| Code | Meaning            |
+|------|--------------------|
+| 0    | OK                 |
+| 1    | E_ARGS             |
+| 2    | E_INVALID          |
+| 3    | E_NOTEXIST         |
+| 4    | E_EXISTS           |
+| 8    | E_LIMIT            |
+| 10   | E_FORBIDDEN        |
+| 11   | E_DISABLED         |
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+Full list in `internal/client/client.go`.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+## Publishing to the Terraform Registry
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+1. Replace `your-org` with your actual GitHub org/username throughout the codebase.
+2. Tag a release: `git tag v0.1.0 && git push origin v0.1.0`
+3. GoReleaser (`.goreleaser.yml`) will build cross-platform binaries automatically via GitHub Actions.
+4. Follow the [Terraform Registry publishing guide](https://developer.hashicorp.com/terraform/registry/providers/publishing).
