@@ -42,7 +42,7 @@ func (r *DatabaseResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 		MarkdownDescription: "Manages a HestiaCP database and database user.",
 		Attributes: map[string]schema.Attribute{
 			"id":          schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"user":        schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"user":        schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "HestiaCP username that owns this database. Defaults to the provider `username`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"db_name":     schema.StringAttribute{Required: true, MarkdownDescription: "Database name (without user prefix).", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"db_user":     schema.StringAttribute{Required: true, MarkdownDescription: "Database username (without user prefix).", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"db_password": schema.StringAttribute{Required: true, Sensitive: true},
@@ -69,11 +69,17 @@ func (r *DatabaseResource) Create(ctx context.Context, req resource.CreateReques
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.client.CreateDatabase(plan.User.ValueString(), plan.DbName.ValueString(), plan.DbUser.ValueString(), plan.DbPassword.ValueString(), plan.DbType.ValueString()); err != nil {
+	user := plan.User.ValueString()
+	if user == "" {
+		user = r.client.DefaultUser()
+	}
+	plan.User = types.StringValue(user)
+
+	if err := r.client.CreateDatabase(user, plan.DbName.ValueString(), plan.DbUser.ValueString(), plan.DbPassword.ValueString(), plan.DbType.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error creating database", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", plan.User.ValueString(), plan.DbName.ValueString()))
+	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", user, plan.DbName.ValueString()))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -138,7 +144,7 @@ func (r *EmailDomainResource) Schema(_ context.Context, _ resource.SchemaRequest
 		MarkdownDescription: "Manages a mail domain in HestiaCP.",
 		Attributes: map[string]schema.Attribute{
 			"id":     schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"user":   schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"user":   schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "HestiaCP username that owns this mail domain. Defaults to the provider `username`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"domain": schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 		},
 	}
@@ -162,11 +168,17 @@ func (r *EmailDomainResource) Create(ctx context.Context, req resource.CreateReq
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.client.CreateMailDomain(plan.User.ValueString(), plan.Domain.ValueString()); err != nil {
+	user := plan.User.ValueString()
+	if user == "" {
+		user = r.client.DefaultUser()
+	}
+	plan.User = types.StringValue(user)
+
+	if err := r.client.CreateMailDomain(user, plan.Domain.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error creating mail domain", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", plan.User.ValueString(), plan.Domain.ValueString()))
+	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", user, plan.Domain.ValueString()))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -233,7 +245,7 @@ func (r *EmailAccountResource) Schema(_ context.Context, _ resource.SchemaReques
 		MarkdownDescription: "Manages a mail account (mailbox) within a HestiaCP mail domain.",
 		Attributes: map[string]schema.Attribute{
 			"id":       schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"user":     schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"user":     schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "HestiaCP username that owns this mail account. Defaults to the provider `username`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"domain":   schema.StringAttribute{Required: true, MarkdownDescription: "Mail domain this account belongs to.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"account":  schema.StringAttribute{Required: true, MarkdownDescription: "Mailbox name (the part before the @).", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"password": schema.StringAttribute{Required: true, Sensitive: true},
@@ -265,7 +277,13 @@ func (r *EmailAccountResource) Create(ctx context.Context, req resource.CreateRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.client.CreateMailAccount(plan.User.ValueString(), plan.Domain.ValueString(), plan.Account.ValueString(), plan.Password.ValueString(), int(plan.Quota.ValueInt64())); err != nil {
+	user := plan.User.ValueString()
+	if user == "" {
+		user = r.client.DefaultUser()
+	}
+	plan.User = types.StringValue(user)
+
+	if err := r.client.CreateMailAccount(user, plan.Domain.ValueString(), plan.Account.ValueString(), plan.Password.ValueString(), int(plan.Quota.ValueInt64())); err != nil {
 		resp.Diagnostics.AddError("Error creating mail account", err.Error())
 		return
 	}
@@ -334,7 +352,7 @@ func (r *SSLResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 		MarkdownDescription: "Issues a Let's Encrypt SSL certificate for a HestiaCP web domain.",
 		Attributes: map[string]schema.Attribute{
 			"id":      schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"user":    schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"user":    schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "HestiaCP username that owns this domain. Defaults to the provider `username`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"domain":  schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"aliases": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString(""), MarkdownDescription: "Comma-separated list of additional SANs, e.g. `www.example.com,mail.example.com`."},
 		},
@@ -359,11 +377,17 @@ func (r *SSLResource) Create(ctx context.Context, req resource.CreateRequest, re
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.client.CreateSSL(plan.User.ValueString(), plan.Domain.ValueString(), plan.Aliases.ValueString()); err != nil {
+	user := plan.User.ValueString()
+	if user == "" {
+		user = r.client.DefaultUser()
+	}
+	plan.User = types.StringValue(user)
+
+	if err := r.client.CreateSSL(user, plan.Domain.ValueString(), plan.Aliases.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error issuing SSL certificate", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", plan.User.ValueString(), plan.Domain.ValueString()))
+	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", user, plan.Domain.ValueString()))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -426,7 +450,7 @@ func (r *BackupResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 		MarkdownDescription: "Triggers a HestiaCP user backup. Each apply creates a new backup snapshot.",
 		Attributes: map[string]schema.Attribute{
 			"id":   schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"user": schema.StringAttribute{Required: true, MarkdownDescription: "HestiaCP username to back up.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"user": schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "HestiaCP username to back up. Defaults to the provider `username`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 		},
 	}
 }
@@ -449,11 +473,17 @@ func (r *BackupResource) Create(ctx context.Context, req resource.CreateRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.client.CreateBackup(plan.User.ValueString()); err != nil {
+	user := plan.User.ValueString()
+	if user == "" {
+		user = r.client.DefaultUser()
+	}
+	plan.User = types.StringValue(user)
+
+	if err := r.client.CreateBackup(user); err != nil {
 		resp.Diagnostics.AddError("Error creating backup", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(plan.User.ValueString())
+	plan.ID = types.StringValue(user)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

@@ -34,7 +34,7 @@ func (r *WebDomainResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 		MarkdownDescription: "Manages a web domain (virtual host) in HestiaCP.",
 		Attributes: map[string]schema.Attribute{
 			"id":     schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"user":   schema.StringAttribute{Required: true, MarkdownDescription: "HestiaCP username that owns this domain.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"user":   schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "HestiaCP username that owns this domain. Defaults to the provider `username`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"domain": schema.StringAttribute{Required: true, MarkdownDescription: "Domain name, e.g. `example.com`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"ip":     schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "Server IP address to bind the domain to. Defaults to `0.0.0.0`."},
 		},
@@ -60,17 +60,23 @@ func (r *WebDomainResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
+	user := plan.User.ValueString()
+	if user == "" {
+		user = r.client.DefaultUser()
+	}
+	plan.User = types.StringValue(user)
+
 	ip := plan.IP.ValueString()
 	if ip == "" {
 		ip = "0.0.0.0"
 	}
 
-	if err := r.client.CreateWebDomain(plan.User.ValueString(), plan.Domain.ValueString(), ip); err != nil {
+	if err := r.client.CreateWebDomain(user, plan.Domain.ValueString(), ip); err != nil {
 		resp.Diagnostics.AddError("Error creating web domain", err.Error())
 		return
 	}
 
-	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", plan.User.ValueString(), plan.Domain.ValueString()))
+	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", user, plan.Domain.ValueString()))
 	plan.IP = types.StringValue(ip)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }

@@ -38,7 +38,7 @@ func (r *DNSRecordResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 		MarkdownDescription: "Manages a single DNS record within a HestiaCP DNS zone.",
 		Attributes: map[string]schema.Attribute{
 			"id":     schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"user":   schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"user":   schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "HestiaCP username that owns this record's zone. Defaults to the provider `username`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"domain": schema.StringAttribute{Required: true, MarkdownDescription: "DNS zone the record belongs to.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"record": schema.StringAttribute{Required: true, MarkdownDescription: "Record name, e.g. `www`, `@`, `mail`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"type":   schema.StringAttribute{Required: true, MarkdownDescription: "Record type: A, AAAA, CNAME, MX, TXT, NS, SRV, etc.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
@@ -72,8 +72,14 @@ func (r *DNSRecordResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
+	user := plan.User.ValueString()
+	if user == "" {
+		user = r.client.DefaultUser()
+	}
+	plan.User = types.StringValue(user)
+
 	if err := r.client.CreateDNSRecord(
-		plan.User.ValueString(),
+		user,
 		plan.Domain.ValueString(),
 		plan.Record.ValueString(),
 		plan.Type.ValueString(),
@@ -86,11 +92,11 @@ func (r *DNSRecordResource) Create(ctx context.Context, req resource.CreateReque
 
 	// Read back the assigned numeric ID from HestiaCP for future deletes.
 	id, err := r.client.FindDNSRecordID(
-		plan.User.ValueString(), plan.Domain.ValueString(),
+		user, plan.Domain.ValueString(),
 		plan.Record.ValueString(), plan.Type.ValueString(), plan.Value.ValueString(),
 	)
 	if err != nil || id == "" {
-		id = fmt.Sprintf("%s/%s/%s/%s", plan.User.ValueString(), plan.Domain.ValueString(), plan.Record.ValueString(), plan.Type.ValueString())
+		id = fmt.Sprintf("%s/%s/%s/%s", user, plan.Domain.ValueString(), plan.Record.ValueString(), plan.Type.ValueString())
 	}
 
 	plan.ID = types.StringValue(id)

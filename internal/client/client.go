@@ -38,18 +38,25 @@ var ReturnCode = map[int]string{
 type Client struct {
 	baseURL    string // e.g. https://myserver.com:8083
 	accessKey  string // ACCESS_KEY:SECRET_KEY
+	username   string // default HestiaCP user for resource operations
 	httpClient *http.Client
 }
 
 // New creates a new HestiaCP client.
-func New(baseURL, accessKey string) *Client {
+func New(baseURL, accessKey, username string) *Client {
 	return &Client{
 		baseURL:   strings.TrimSuffix(baseURL, "/"),
 		accessKey: accessKey,
+		username:  username,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 	}
+}
+
+// DefaultUser returns the configured default HestiaCP username.
+func (c *Client) DefaultUser() string {
+	return c.username
 }
 
 // apiURL returns the full API endpoint.
@@ -139,10 +146,10 @@ func checkRC(rc string, allowedExtra ...int) error {
 // ── User ────────────────────────────────────────────────────────────────────
 
 type User struct {
-	Email    string `json:"EMAIL"`
-	Package  string `json:"PACKAGE"`
-	Name     string `json:"NAME"`
-	Shell    string `json:"SHELL"`
+	Email     string `json:"CONTACT"`
+	Package   string `json:"PACKAGE"`
+	Name      string `json:"NAME"`
+	Shell     string `json:"SHELL"`
 	Suspended string `json:"SUSPENDED"`
 }
 
@@ -355,6 +362,8 @@ func (c *Client) DeleteDatabase(user, dbName string) error {
 type MailDomain struct {
 	Antispam  string `json:"ANTISPAM"`
 	Antivirus string `json:"ANTIVIRUS"`
+	DKIM      string `json:"DKIM"`
+	Catchall  string `json:"CATCHALL"`
 	Suspended string `json:"SUSPENDED"`
 }
 
@@ -467,6 +476,488 @@ func (c *Client) ListBackups(user string) (map[string]Backup, error) {
 
 func (c *Client) DeleteBackup(user, backup string) error {
 	rc, err := c.do("v-delete-user-backup", user, backup)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Cron Job ─────────────────────────────────────────────────────────────────
+
+type CronJob struct {
+	Min       string `json:"MIN"`
+	Hour      string `json:"HOUR"`
+	Day       string `json:"DAY"`
+	Month     string `json:"MONTH"`
+	Wday      string `json:"WDAY"`
+	Command   string `json:"CMD"`
+	Suspended string `json:"SUSPENDED"`
+}
+
+func (c *Client) CreateCronJob(user, min, hour, day, month, wday, command string) error {
+	rc, err := c.do("v-add-cron-job", user, min, hour, day, month, wday, command)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) ListCronJobs(user string) (map[string]CronJob, error) {
+	var out map[string]CronJob
+	if err := c.doJSON("v-list-cron-jobs", &out, user); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) FindCronJobID(user, min, hour, day, month, wday, command string) (string, error) {
+	jobs, err := c.ListCronJobs(user)
+	if err != nil {
+		return "", err
+	}
+	for id, j := range jobs {
+		if j.Command == command && j.Min == min && j.Hour == hour &&
+			j.Day == day && j.Month == month && j.Wday == wday {
+			return id, nil
+		}
+	}
+	return "", nil
+}
+
+func (c *Client) UpdateCronJob(user, id, min, hour, day, month, wday, command string) error {
+	rc, err := c.do("v-change-cron-job", user, id, min, hour, day, month, wday, command)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) DeleteCronJob(user, id string) error {
+	rc, err := c.do("v-delete-cron-job", user, id)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Firewall Rule ─────────────────────────────────────────────────────────────
+
+type FirewallRule struct {
+	Action    string `json:"ACTION"`
+	Protocol  string `json:"PROTOCOL"`
+	Port      string `json:"PORT"`
+	IP        string `json:"IP"`
+	Comment   string `json:"COMMENT"`
+	Rule      string `json:"RULE"`
+	Suspended string `json:"SUSPENDED"`
+}
+
+func (c *Client) CreateFirewallRule(action, protocol, port, ip, comment, rule string) error {
+	rc, err := c.do("v-add-firewall-rule", action, ip, port, protocol, comment, rule)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) ListFirewallRules() (map[string]FirewallRule, error) {
+	var out map[string]FirewallRule
+	if err := c.doJSON("v-list-firewall", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) FindFirewallRuleID(action, protocol, port, ip string) (string, error) {
+	rules, err := c.ListFirewallRules()
+	if err != nil {
+		return "", err
+	}
+	for id, r := range rules {
+		if r.Action == action && r.Protocol == protocol && r.Port == port && r.IP == ip {
+			return id, nil
+		}
+	}
+	return "", nil
+}
+
+func (c *Client) UpdateFirewallRule(id, action, protocol, port, ip, comment, rule string) error {
+	rc, err := c.do("v-change-firewall-rule", id, action, ip, port, protocol, comment, rule)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) DeleteFirewallRule(id string) error {
+	rc, err := c.do("v-delete-firewall-rule", id)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Web Domain Alias ──────────────────────────────────────────────────────────
+
+func (c *Client) CreateWebDomainAlias(user, domain, alias string) error {
+	rc, err := c.do("v-add-web-domain-alias", user, domain, alias)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 4) // 4 = already exists, alias already set
+}
+
+func (c *Client) DeleteWebDomainAlias(user, domain, alias string) error {
+	rc, err := c.do("v-delete-web-domain-alias", user, domain, alias)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Web Domain FTP ────────────────────────────────────────────────────────────
+
+func (c *Client) CreateWebDomainFTP(user, domain, ftpUser, ftpPassword, ftpPath string) error {
+	rc, err := c.do("v-add-web-domain-ftp", user, domain, ftpUser, ftpPassword, ftpPath)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) UpdateWebDomainFTPPassword(user, domain, ftpUser, password string) error {
+	rc, err := c.do("v-change-web-domain-ftp-password", user, domain, ftpUser, password)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) DeleteWebDomainFTP(user, domain, ftpUser string) error {
+	rc, err := c.do("v-delete-web-domain-ftp", user, domain, ftpUser)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Web Domain Redirect ───────────────────────────────────────────────────────
+
+func (c *Client) CreateWebDomainRedirect(user, domain, redirect, httpCode string) error {
+	rc, err := c.do("v-add-web-domain-redirect", user, domain, redirect, httpCode)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) DeleteWebDomainRedirect(user, domain string) error {
+	rc, err := c.do("v-delete-web-domain-redirect", user, domain)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── SSH Key ───────────────────────────────────────────────────────────────────
+
+type SSHKey struct {
+	Fingerprint string `json:"KEY"` // SHA256:... fingerprint, not the public key
+	Date        string `json:"DATE"`
+}
+
+func (c *Client) CreateSSHKey(user, key string) error {
+	rc, err := c.do("v-add-user-ssh-key", user, key)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) ListSSHKeys(user string) (map[string]SSHKey, error) {
+	var out map[string]SSHKey
+	if err := c.doJSON("v-list-user-ssh-key", &out, user); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SSHKeyComment extracts the comment (3rd field) from a public key line.
+// e.g. "ssh-ed25519 AAAA... my-key" → "my-key"
+// HestiaCP uses the comment as the key identifier.
+func SSHKeyComment(key string) string {
+	parts := strings.Fields(key)
+	if len(parts) >= 3 {
+		return parts[2]
+	}
+	return ""
+}
+
+func (c *Client) DeleteSSHKey(user, id string) error {
+	rc, err := c.do("v-delete-user-ssh-key", user, id)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Mail Forward ──────────────────────────────────────────────────────────────
+
+func (c *Client) CreateMailForward(user, domain, account, forward string) error {
+	rc, err := c.do("v-add-mail-account-forward", user, domain, account, forward)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) DeleteMailForward(user, domain, account, forward string) error {
+	rc, err := c.do("v-delete-mail-account-forward", user, domain, account, forward)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Mail Alias ────────────────────────────────────────────────────────────────
+
+func (c *Client) CreateMailAlias(user, domain, account, alias string) error {
+	rc, err := c.do("v-add-mail-account-alias", user, domain, account, alias)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) DeleteMailAlias(user, domain, account, alias string) error {
+	rc, err := c.do("v-delete-mail-account-alias", user, domain, account, alias)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Mail Autoreply ────────────────────────────────────────────────────────────
+
+type MailAutoreply struct {
+	Message string `json:"MSG"`
+	Status  string `json:"STATUS"`
+}
+
+func (c *Client) CreateMailAutoreply(user, domain, account, message string) error {
+	rc, err := c.do("v-add-mail-account-autoreply", user, domain, account, message)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) ReadMailAutoreply(user, domain, account string) (*MailAutoreply, error) {
+	var out map[string]MailAutoreply
+	if err := c.doJSON("v-list-mail-account-autoreply", &out, user, domain, account); err != nil {
+		return nil, err
+	}
+	a, ok := out[account]
+	if !ok {
+		return nil, nil
+	}
+	return &a, nil
+}
+
+func (c *Client) DeleteMailAutoreply(user, domain, account string) error {
+	rc, err := c.do("v-delete-mail-account-autoreply", user, domain, account)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Web Domain HTTP Auth ──────────────────────────────────────────────────────
+
+func (c *Client) CreateWebDomainHTTPAuth(user, domain, authUser, authPassword string) error {
+	rc, err := c.do("v-add-web-domain-httpauth", user, domain, authUser, authPassword)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) UpdateWebDomainHTTPAuth(user, domain, authUser, authPassword string) error {
+	rc, err := c.do("v-change-web-domain-httpauth", user, domain, authUser, authPassword)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) DeleteWebDomainHTTPAuth(user, domain, authUser string) error {
+	rc, err := c.do("v-delete-web-domain-httpauth", user, domain, authUser)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Mail Domain Catchall ──────────────────────────────────────────────────────
+
+func (c *Client) CreateMailDomainCatchall(user, domain, email string) error {
+	rc, err := c.do("v-add-mail-domain-catchall", user, domain, email)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) UpdateMailDomainCatchall(user, domain, email string) error {
+	rc, err := c.do("v-change-mail-domain-catchall", user, domain, email)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) DeleteMailDomainCatchall(user, domain string) error {
+	rc, err := c.do("v-delete-mail-domain-catchall", user, domain)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Mail Domain DKIM ──────────────────────────────────────────────────────────
+
+func (c *Client) CreateMailDomainDKIM(user, domain string) error {
+	rc, err := c.do("v-add-mail-domain-dkim", user, domain)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 4) // 4 = already enabled
+}
+
+func (c *Client) DeleteMailDomainDKIM(user, domain string) error {
+	rc, err := c.do("v-delete-mail-domain-dkim", user, domain)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Mail Domain Antispam ──────────────────────────────────────────────────────
+
+func (c *Client) CreateMailDomainAntispam(user, domain string) error {
+	rc, err := c.do("v-add-mail-domain-antispam", user, domain)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 4) // 4 = already enabled
+}
+
+func (c *Client) DeleteMailDomainAntispam(user, domain string) error {
+	rc, err := c.do("v-delete-mail-domain-antispam", user, domain)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Mail Domain Antivirus ─────────────────────────────────────────────────────
+
+func (c *Client) CreateMailDomainAntivirus(user, domain string) error {
+	rc, err := c.do("v-add-mail-domain-antivirus", user, domain)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 4) // 4 = already enabled
+}
+
+func (c *Client) DeleteMailDomainAntivirus(user, domain string) error {
+	rc, err := c.do("v-delete-mail-domain-antivirus", user, domain)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Remote DNS Host ───────────────────────────────────────────────────────────
+
+type RemoteDNSHost struct {
+	Host      string `json:"HOST"`
+	Port      string `json:"PORT"`
+	User      string `json:"USER"`
+	DNSSystem string `json:"SYSTEM"`
+	Type      string `json:"TYPE"`
+	Suspended string `json:"SUSPENDED"`
+}
+
+func (c *Client) CreateRemoteDNSHost(host, port, user, password, dnsSystem, hostType string) error {
+	rc, err := c.do("v-add-remote-dns-host", host, port, user, password, dnsSystem, hostType)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) ListRemoteDNSHosts() (map[string]RemoteDNSHost, error) {
+	var out map[string]RemoteDNSHost
+	if err := c.doJSON("v-list-remote-dns-hosts", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) ReadRemoteDNSHost(host string) (*RemoteDNSHost, error) {
+	hosts, err := c.ListRemoteDNSHosts()
+	if err != nil {
+		return nil, err
+	}
+	h, ok := hosts[host]
+	if !ok {
+		return nil, nil
+	}
+	return &h, nil
+}
+
+func (c *Client) DeleteRemoteDNSHost(host string) error {
+	rc, err := c.do("v-delete-remote-dns-host", host)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3)
+}
+
+// ── Backup Host ───────────────────────────────────────────────────────────────
+
+type BackupHost struct {
+	Host      string `json:"HOST"`
+	Username  string `json:"USERNAME"`
+	Path      string `json:"PATH"`
+	Port      string `json:"PORT"`
+	Type      string `json:"TYPE"`
+	Suspended string `json:"SUSPENDED"`
+}
+
+func (c *Client) CreateBackupHost(hostType, host, username, password, path, port string) error {
+	rc, err := c.do("v-add-backup-host", hostType, host, username, password, path, port)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
+func (c *Client) ReadBackupHost(hostType, host string) (*BackupHost, error) {
+	var out map[string]BackupHost
+	if err := c.doJSON("v-list-backup-host", &out, hostType, host); err != nil {
+		return nil, err
+	}
+	h, ok := out[host]
+	if !ok {
+		return nil, nil
+	}
+	return &h, nil
+}
+
+func (c *Client) DeleteBackupHost(hostType, host string) error {
+	rc, err := c.do("v-delete-backup-host", hostType, host)
 	if err != nil {
 		return err
 	}

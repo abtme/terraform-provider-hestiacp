@@ -3,7 +3,7 @@ default: build
 BINARY    := terraform-provider-hestiacp
 VERSION   ?= 0.1.0
 OS_ARCH   := $(shell go env GOOS)_$(shell go env GOARCH)
-INSTALL_PATH := ~/.terraform.d/plugins/registry.terraform.io/your-org/hestiacp/$(VERSION)/$(OS_ARCH)
+INSTALL_PATH := ~/.terraform.d/plugins/registry.terraform.io/abtme/hestiacp/$(VERSION)/$(OS_ARCH)
 
 .PHONY: build install fmt lint test testacc docs clean
 

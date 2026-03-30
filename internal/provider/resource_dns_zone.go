@@ -34,7 +34,7 @@ func (r *DNSZoneResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 		MarkdownDescription: "Manages a DNS zone in HestiaCP.",
 		Attributes: map[string]schema.Attribute{
 			"id":     schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"user":   schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"user":   schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "HestiaCP username that owns this zone. Defaults to the provider `username`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"domain": schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"ip":     schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "Default IP for zone SOA record."},
 		},
@@ -60,17 +60,23 @@ func (r *DNSZoneResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
+	user := plan.User.ValueString()
+	if user == "" {
+		user = r.client.DefaultUser()
+	}
+	plan.User = types.StringValue(user)
+
 	ip := plan.IP.ValueString()
 	if ip == "" {
 		ip = "0.0.0.0"
 	}
 
-	if err := r.client.CreateDNSZone(plan.User.ValueString(), plan.Domain.ValueString(), ip); err != nil {
+	if err := r.client.CreateDNSZone(user, plan.Domain.ValueString(), ip); err != nil {
 		resp.Diagnostics.AddError("Error creating DNS zone", err.Error())
 		return
 	}
 
-	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", plan.User.ValueString(), plan.Domain.ValueString()))
+	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", user, plan.Domain.ValueString()))
 	plan.IP = types.StringValue(ip)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }

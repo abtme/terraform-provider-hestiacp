@@ -25,6 +25,7 @@ type HestiacpProvider struct {
 type HestiacpProviderModel struct {
 	URL       types.String `tfsdk:"url"`
 	AccessKey types.String `tfsdk:"access_key"`
+	Username  types.String `tfsdk:"username"`
 }
 
 // New returns a provider.Provider factory function.
@@ -51,6 +52,10 @@ func (p *HestiacpProvider) Schema(_ context.Context, _ provider.SchemaRequest, r
 				MarkdownDescription: "HestiaCP access key in `ACCESS_KEY:SECRET_KEY` format. May also be set via the `HESTIACP_ACCESS_KEY` environment variable.",
 				Optional:            true,
 				Sensitive:           true,
+			},
+			"username": schema.StringAttribute{
+				MarkdownDescription: "Default HestiaCP username for resource operations. May also be set via the `HESTIACP_USERNAME` environment variable.",
+				Optional:            true,
 			},
 		},
 	}
@@ -89,11 +94,17 @@ func (p *HestiacpProvider) Configure(ctx context.Context, req provider.Configure
 		)
 	}
 
+	// Resolve default username.
+	username := os.Getenv("HESTIACP_USERNAME")
+	if !config.Username.IsNull() {
+		username = config.Username.ValueString()
+	}
+
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	c := client.New(url, accessKey)
+	c := client.New(url, accessKey, username)
 	resp.DataSourceData = c
 	resp.ResourceData = c
 }
@@ -109,6 +120,22 @@ func (p *HestiacpProvider) Resources(_ context.Context) []func() resource.Resour
 		NewEmailAccountResource,
 		NewSSLResource,
 		NewBackupResource,
+		NewCronJobResource,
+		NewFirewallRuleResource,
+		NewWebDomainAliasResource,
+		NewWebDomainFTPResource,
+		NewWebDomainRedirectResource,
+		NewSSHKeyResource,
+		NewMailForwardResource,
+		NewMailAliasResource,
+		NewMailAutoreplyResource,
+		NewWebDomainHTTPAuthResource,
+		NewMailDomainCatchallResource,
+		NewMailDomainDKIMResource,
+		NewMailDomainAntispamResource,
+		NewMailDomainAntivirusResource,
+		NewRemoteDNSHostResource,
+		NewBackupHostResource,
 	}
 }
 

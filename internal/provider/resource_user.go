@@ -106,6 +106,7 @@ func (r *UserResource) Create(ctx context.Context, req resource.CreateRequest, r
 
 	plan.ID = plan.Username
 	plan.Package = types.StringValue(pkg)
+	plan.FirstName = types.StringValue(firstName)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -128,7 +129,9 @@ func (r *UserResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 
 	state.Email = types.StringValue(u.Email)
 	state.Package = types.StringValue(u.Package)
-	state.FirstName = types.StringValue(u.Name)
+	if u.Name != "" {
+		state.FirstName = types.StringValue(u.Name)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
