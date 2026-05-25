@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,9 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrNotFound is returned by Read functions when HestiaCP reports the object does not exist.
+var ErrNotFound = errors.New("object does not exist")
 
 // ReturnCode maps HestiaCP numeric return codes to error strings.
 var ReturnCode = map[int]string{
@@ -117,7 +121,11 @@ func (c *Client) doJSON(cmd string, out interface{}, args ...string) error {
 	}
 
 	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("failed to parse HestiaCP JSON response (%s): %w", string(body), err)
+		bodyStr := strings.TrimSpace(string(body))
+		if strings.HasPrefix(bodyStr, "Error:") && strings.Contains(bodyStr, "doesn't exist") {
+			return ErrNotFound
+		}
+		return fmt.Errorf("failed to parse HestiaCP JSON response (%s): %w", bodyStr, err)
 	}
 	return nil
 }
@@ -217,6 +225,9 @@ func (c *Client) CreateWebDomain(user, domain, ip string) error {
 func (c *Client) ReadWebDomain(user, domain string) (*WebDomain, error) {
 	var out map[string]WebDomain
 	if err := c.doJSON("v-list-web-domain", &out, user, domain); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	d, ok := out[domain]
@@ -378,6 +389,9 @@ func (c *Client) CreateMailDomain(user, domain string) error {
 func (c *Client) ReadMailDomain(user, domain string) (*MailDomain, error) {
 	var out map[string]MailDomain
 	if err := c.doJSON("v-list-mail-domain", &out, user, domain); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	md, ok := out[domain]
@@ -412,7 +426,9 @@ func (c *Client) CreateMailAccount(user, domain, account, password string, quota
 
 func (c *Client) ReadMailAccount(user, domain, account string) (*MailAccount, error) {
 	var out map[string]MailAccount
-	if err := c.doJSON("v-list-mail-account", &out, user, domain, account); err != nil {
+	if err := c.doJSON("v-list-mail-account", &out, user, domain, account); errors.Is(err, ErrNotFound) {
+		return nil, nil
+	} else if err != nil {
 		return nil, err
 	}
 	ma, ok := out[account]
