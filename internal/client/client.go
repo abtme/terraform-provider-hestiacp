@@ -211,7 +211,7 @@ func (c *Client) CreateWebDomain(user, domain, ip string) error {
 	if err != nil {
 		return err
 	}
-	return checkRC(rc)
+	return checkRC(rc, 4) // 4 = already exists, treat as success
 }
 
 func (c *Client) ReadWebDomain(user, domain string) (*WebDomain, error) {
@@ -372,7 +372,7 @@ func (c *Client) CreateMailDomain(user, domain string) error {
 	if err != nil {
 		return err
 	}
-	return checkRC(rc)
+	return checkRC(rc, 4) // 4 = already exists, treat as success
 }
 
 func (c *Client) ReadMailDomain(user, domain string) (*MailDomain, error) {
@@ -407,7 +407,7 @@ func (c *Client) CreateMailAccount(user, domain, account, password string, quota
 	if err != nil {
 		return err
 	}
-	return checkRC(rc)
+	return checkRC(rc, 4) // 4 = already exists, treat as success
 }
 
 func (c *Client) ReadMailAccount(user, domain, account string) (*MailAccount, error) {
