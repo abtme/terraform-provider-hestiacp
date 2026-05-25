@@ -3,7 +3,9 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
@@ -124,6 +126,7 @@ func (r *DatabaseResource) Delete(ctx context.Context, req resource.DeleteReques
 // ═══════════════════════════════════════════════════════════════════════════
 
 var _ resource.Resource = &EmailDomainResource{}
+var _ resource.ResourceWithImportState = &EmailDomainResource{}
 
 func NewEmailDomainResource() resource.Resource { return &EmailDomainResource{} }
 
@@ -217,11 +220,24 @@ func (r *EmailDomainResource) Delete(ctx context.Context, req resource.DeleteReq
 	}
 }
 
+// ImportState accepts "user/domain".
+func (r *EmailDomainResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts := strings.SplitN(req.ID, "/", 2)
+	if len(parts) != 2 {
+		resp.Diagnostics.AddError("Invalid import ID", "Expected format: user/domain")
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("user"), parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("domain"), parts[1])...)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // EMAIL ACCOUNT
 // ═══════════════════════════════════════════════════════════════════════════
 
 var _ resource.Resource = &EmailAccountResource{}
+var _ resource.ResourceWithImportState = &EmailAccountResource{}
 
 func NewEmailAccountResource() resource.Resource { return &EmailAccountResource{} }
 
@@ -315,6 +331,19 @@ func (r *EmailAccountResource) Update(ctx context.Context, req resource.UpdateRe
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
+// ImportState accepts "user/domain/account".
+func (r *EmailAccountResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts := strings.SplitN(req.ID, "/", 3)
+	if len(parts) != 3 {
+		resp.Diagnostics.AddError("Invalid import ID", "Expected format: user/domain/account")
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), fmt.Sprintf("%s@%s", parts[2], parts[1]))...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("user"), parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("domain"), parts[1])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("account"), parts[2])...)
+}
+
 func (r *EmailAccountResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var state EmailAccountResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -354,7 +383,7 @@ func (r *SSLResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 			"id":      schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"user":    schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "HestiaCP username that owns this domain. Defaults to the provider `username`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"domain":  schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
-			"aliases": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString(""), MarkdownDescription: "Comma-separated list of additional SANs, e.g. `www.example.com,mail.example.com`."},
+			"aliases": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString(""), MarkdownDescription: "Comma-separated list of additional SANs, e.g. `www.example.com,mail.example.com`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 		},
 	}
 }

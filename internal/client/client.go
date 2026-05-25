@@ -455,7 +455,7 @@ func (c *Client) CreateSSL(user, domain, aliases string) error {
 	if err != nil {
 		return err
 	}
-	return checkRC(rc)
+	return checkRC(rc, 4) // 4 = already exists, treat as success
 }
 
 func (c *Client) DeleteSSL(user, domain string) error {
