@@ -53,7 +53,7 @@ func New(baseURL, accessKey, username string) *Client {
 		accessKey: accessKey,
 		username:  username,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 300 * time.Second,
 		},
 	}
 }
