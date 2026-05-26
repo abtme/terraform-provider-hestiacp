@@ -450,8 +450,14 @@ func (c *Client) DeleteMailAccount(user, domain, account string) error {
 
 func (c *Client) CreateSSL(user, domain, aliases string) error {
 	// uses Let's Encrypt via v-add-letsencrypt-domain
-	// aliases = comma-separated list e.g. "www.example.com,mail.example.com"
-	rc, err := c.do("v-add-letsencrypt-domain", user, domain, aliases, "yes")
+	// Only pass aliases arg when non-empty; never pass the restart arg — passing
+	// "yes" as arg3 when aliases is empty shifts it into the aliases position and
+	// HestiaCP rejects "yes" as a non-existent web domain (E_NOTEXIST).
+	args := []string{user, domain}
+	if aliases != "" {
+		args = append(args, aliases)
+	}
+	rc, err := c.do("v-add-letsencrypt-domain", args...)
 	if err != nil {
 		return err
 	}
