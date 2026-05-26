@@ -119,6 +119,7 @@ func (p *HestiacpProvider) Resources(_ context.Context) []func() resource.Resour
 		NewEmailDomainResource,
 		NewEmailAccountResource,
 		NewSSLResource,
+		NewMailSSLResource,
 		NewBackupResource,
 		NewCronJobResource,
 		NewFirewallRuleResource,

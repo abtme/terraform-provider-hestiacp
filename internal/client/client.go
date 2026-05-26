@@ -376,6 +376,7 @@ type MailDomain struct {
 	DKIM      string `json:"DKIM"`
 	Catchall  string `json:"CATCHALL"`
 	Suspended string `json:"SUSPENDED"`
+	SSL       string `json:"SSL"`
 }
 
 func (c *Client) CreateMailDomain(user, domain string) error {
@@ -470,6 +471,22 @@ func (c *Client) DeleteSSL(user, domain string) error {
 		return err
 	}
 	return checkRC(rc, 3)
+}
+
+func (c *Client) CreateMailSSL(user, domain string) error {
+	rc, err := c.do("v-add-letsencrypt-mail-ssl", user, domain)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 4) // 4 = already exists, treat as success
+}
+
+func (c *Client) DeleteMailSSL(user, domain string) error {
+	rc, err := c.do("v-delete-letsencrypt-mail-ssl", user, domain)
+	if err != nil {
+		return err
+	}
+	return checkRC(rc, 3) // 3 = not found, treat as success
 }
 
 // ── Backup ──────────────────────────────────────────────────────────────────

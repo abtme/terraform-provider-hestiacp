@@ -456,6 +456,104 @@ func (r *SSLResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// MAIL SSL (Let's Encrypt)
+// ═══════════════════════════════════════════════════════════════════════════
+
+var _ resource.Resource = &MailSSLResource{}
+
+func NewMailSSLResource() resource.Resource { return &MailSSLResource{} }
+
+type MailSSLResource struct{ client *client.Client }
+
+type MailSSLResourceModel struct {
+	ID     types.String `tfsdk:"id"`
+	User   types.String `tfsdk:"user"`
+	Domain types.String `tfsdk:"domain"`
+}
+
+func (r *MailSSLResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_mail_ssl"
+}
+
+func (r *MailSSLResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Issues a Let's Encrypt SSL certificate for a HestiaCP mail domain via v-add-letsencrypt-mail-ssl.",
+		Attributes: map[string]schema.Attribute{
+			"id":     schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"user":   schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "HestiaCP username. Defaults to the provider `username`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"domain": schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+		},
+	}
+}
+
+func (r *MailSSLResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
+	c, ok := req.ProviderData.(*client.Client)
+	if !ok {
+		resp.Diagnostics.AddError("Unexpected provider data", fmt.Sprintf("got %T", req.ProviderData))
+		return
+	}
+	r.client = c
+}
+
+func (r *MailSSLResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan MailSSLResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	user := plan.User.ValueString()
+	if user == "" {
+		user = r.client.DefaultUser()
+	}
+	plan.User = types.StringValue(user)
+
+	if err := r.client.CreateMailSSL(user, plan.Domain.ValueString()); err != nil {
+		resp.Diagnostics.AddError("Error issuing mail SSL certificate", err.Error())
+		return
+	}
+	plan.ID = types.StringValue(fmt.Sprintf("%s/%s", user, plan.Domain.ValueString()))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *MailSSLResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state MailSSLResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	d, err := r.client.ReadMailDomain(state.User.ValueString(), state.Domain.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading mail SSL state", err.Error())
+		return
+	}
+	if d == nil || d.SSL != "yes" {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+func (r *MailSSLResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan MailSSLResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *MailSSLResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state MailSSLResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.client.DeleteMailSSL(state.User.ValueString(), state.Domain.ValueString()); err != nil {
+		resp.Diagnostics.AddError("Error deleting mail SSL certificate", err.Error())
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // BACKUP
 // ═══════════════════════════════════════════════════════════════════════════
 
