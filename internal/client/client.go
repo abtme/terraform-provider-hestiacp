@@ -474,7 +474,10 @@ func (c *Client) DeleteSSL(user, domain string) error {
 }
 
 func (c *Client) CreateMailSSL(user, domain string) error {
-	rc, err := c.do("v-add-letsencrypt-mail-ssl", user, domain)
+	// Install the existing web LE cert onto the mail domain.
+	// HestiaCP stores web certs at /home/USER/conf/web/DOMAIN/ssl/.
+	certDir := fmt.Sprintf("/home/%s/conf/web/%s/ssl", user, domain)
+	rc, err := c.do("v-add-mail-domain-ssl", user, domain, certDir)
 	if err != nil {
 		return err
 	}
@@ -482,7 +485,7 @@ func (c *Client) CreateMailSSL(user, domain string) error {
 }
 
 func (c *Client) DeleteMailSSL(user, domain string) error {
-	rc, err := c.do("v-delete-letsencrypt-mail-ssl", user, domain)
+	rc, err := c.do("v-delete-mail-domain-ssl", user, domain)
 	if err != nil {
 		return err
 	}
