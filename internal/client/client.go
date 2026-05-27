@@ -474,14 +474,14 @@ func (c *Client) DeleteSSL(user, domain string) error {
 }
 
 func (c *Client) CreateMailSSL(user, domain string) error {
-	// Install the existing web LE cert onto the mail domain.
-	// HestiaCP stores web certs at /home/USER/conf/web/DOMAIN/ssl/.
+	// Delete first so we always copy the current web cert (not a stale copy).
+	c.do("v-delete-mail-domain-ssl", user, domain) //nolint:errcheck
 	certDir := fmt.Sprintf("/home/%s/conf/web/%s/ssl", user, domain)
 	rc, err := c.do("v-add-mail-domain-ssl", user, domain, certDir)
 	if err != nil {
 		return err
 	}
-	return checkRC(rc, 4) // 4 = already exists, treat as success
+	return checkRC(rc, 4)
 }
 
 func (c *Client) DeleteMailSSL(user, domain string) error {
