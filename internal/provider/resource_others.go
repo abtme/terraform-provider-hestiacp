@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -369,7 +370,7 @@ type SSLResourceModel struct {
 	ID      types.String `tfsdk:"id"`
 	User    types.String `tfsdk:"user"`
 	Domain  types.String `tfsdk:"domain"`
-	Aliases types.String `tfsdk:"aliases"`
+	Aliases types.List   `tfsdk:"aliases"`
 }
 
 func (r *SSLResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -380,10 +381,15 @@ func (r *SSLResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Issues a Let's Encrypt SSL certificate for a HestiaCP web domain.",
 		Attributes: map[string]schema.Attribute{
-			"id":      schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"user":    schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "HestiaCP username that owns this domain. Defaults to the provider `username`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
-			"domain":  schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
-			"aliases": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString(""), MarkdownDescription: "Comma-separated list of additional SANs, e.g. `www.example.com,mail.example.com`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"id":     schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+			"user":   schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "HestiaCP username that owns this domain. Defaults to the provider `username`.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"domain": schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"aliases": schema.ListAttribute{
+				ElementType:         types.StringType,
+				Optional:            true,
+				MarkdownDescription: "Additional SANs to include in the certificate, e.g. `[\"www.example.com\", \"mail.example.com\"]`.",
+				PlanModifiers:       []planmodifier.List{listplanmodifier.RequiresReplace()},
+			},
 		},
 	}
 }
@@ -412,7 +418,14 @@ func (r *SSLResource) Create(ctx context.Context, req resource.CreateRequest, re
 	}
 	plan.User = types.StringValue(user)
 
-	if err := r.client.CreateSSL(user, plan.Domain.ValueString(), plan.Aliases.ValueString()); err != nil {
+	var aliases []string
+	if !plan.Aliases.IsNull() && !plan.Aliases.IsUnknown() {
+		resp.Diagnostics.Append(plan.Aliases.ElementsAs(ctx, &aliases, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
+	if err := r.client.CreateSSL(user, plan.Domain.ValueString(), strings.Join(aliases, " ")); err != nil {
 		resp.Diagnostics.AddError("Error issuing SSL certificate", err.Error())
 		return
 	}
