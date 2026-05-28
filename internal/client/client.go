@@ -477,9 +477,26 @@ func (c *Client) CreateMailSSL(user, domain string) error {
 	// Delete first so we always copy the current web cert (not a stale copy).
 	c.do("v-delete-mail-domain-ssl", user, domain) //nolint:errcheck
 	certDir := fmt.Sprintf("/home/%s/conf/web/%s/ssl", user, domain)
-	rc, err := c.do("v-add-mail-domain-ssl", user, domain, certDir)
-	if err != nil {
-		return err
+
+	// Retry up to 3 times with backoff: the cert directory may not be written
+	// immediately after LE issuance (E_INVALID=2) or the mail domain may not
+	// yet be fully configured (E_NOTEXIST=3).
+	var rc string
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt*10) * time.Second)
+			c.do("v-delete-mail-domain-ssl", user, domain) //nolint:errcheck
+		}
+		rc, err = c.do("v-add-mail-domain-ssl", user, domain, certDir)
+		if err != nil {
+			return err
+		}
+		var code int
+		fmt.Sscanf(rc, "%d", &code)
+		if code != 2 && code != 3 {
+			break
+		}
 	}
 	return checkRC(rc, 4)
 }
