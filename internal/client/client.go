@@ -40,13 +40,16 @@ var ReturnCode = map[int]string{
 // Client is the HestiaCP API client.
 // Auth uses ACCESS_KEY:SECRET_KEY (v1.6+ preferred method).
 type Client struct {
-	baseURL    string // e.g. https://myserver.com:8083
-	accessKey  string // ACCESS_KEY:SECRET_KEY
-	username   string // default HestiaCP user for resource operations
-	httpClient *http.Client
+	baseURL      string // e.g. https://myserver.com:8083
+	accessKey    string // ACCESS_KEY:SECRET_KEY
+	username     string // default HestiaCP user for resource operations
+	httpClient   *http.Client
+	sslSemaphore chan struct{} // limits concurrent SSL/LE certificate operations
 }
 
 // New creates a new HestiaCP client.
+// sslConcurrency caps how many SSL issuance operations run simultaneously
+// (Let's Encrypt and HestiaCP both struggle with many concurrent requests).
 func New(baseURL, accessKey, username string) *Client {
 	return &Client{
 		baseURL:   strings.TrimSuffix(baseURL, "/"),
@@ -55,6 +58,7 @@ func New(baseURL, accessKey, username string) *Client {
 		httpClient: &http.Client{
 			Timeout: 300 * time.Second,
 		},
+		sslSemaphore: make(chan struct{}, 1), // max 1 concurrent SSL operation (sequential)
 	}
 }
 
@@ -487,6 +491,9 @@ func (c *Client) DeleteMailAccount(user, domain, account string) error {
 // ── SSL ─────────────────────────────────────────────────────────────────────
 
 func (c *Client) CreateSSL(user, domain, aliases string) error {
+	c.sslSemaphore <- struct{}{} // acquire — ensures only one SSL op at a time
+	defer func() { <-c.sslSemaphore }()
+
 	// uses Let's Encrypt via v-add-letsencrypt-domain
 	// Only pass aliases arg when non-empty; never pass the restart arg — passing
 	// "yes" as arg3 when aliases is empty shifts it into the aliases position and
@@ -511,6 +518,9 @@ func (c *Client) DeleteSSL(user, domain string) error {
 }
 
 func (c *Client) CreateMailSSL(user, domain string) error {
+	c.sslSemaphore <- struct{}{} // acquire — ensures only one SSL op at a time
+	defer func() { <-c.sslSemaphore }()
+
 	// Delete first so we always copy the current web cert (not a stale copy).
 	c.do("v-delete-mail-domain-ssl", user, domain) //nolint:errcheck
 	certDir := fmt.Sprintf("/home/%s/conf/web/%s/ssl", user, domain)
