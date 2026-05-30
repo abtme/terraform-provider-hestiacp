@@ -68,11 +68,48 @@ func (c *Client) apiURL() string {
 	return c.baseURL + "/api/"
 }
 
+// retryBackoff is the sequence of delays between retry attempts.
+// Max attempts = 1 (initial) + len(retryBackoff) = 6 total.
+var retryBackoff = []time.Duration{
+	5 * time.Second,
+	10 * time.Second,
+	20 * time.Second,
+	40 * time.Second,
+	80 * time.Second,
+}
+
+// isRetryableCode returns true for HestiaCP return codes that may be transient.
+func isRetryableCode(rc string) bool {
+	var code int
+	fmt.Sscanf(rc, "%d", &code)
+	return code == 2 || code == 3 // E_INVALID or E_NOTEXIST
+}
+
 // do executes a POST to the HestiaCP API with form-encoded body.
 // cmd  = v-add-user, v-list-web-domains, etc.
 // args = positional arg1..argN values.
-// Returns the raw response body.
+// Returns the raw response body. Automatically retries on E_INVALID (2) and
+// E_NOTEXIST (3) with exponential backoff (5/10/20/40/80s, max 6 attempts).
 func (c *Client) do(cmd string, args ...string) (string, error) {
+	rc, err := c.doOnce(cmd, args...)
+	if err != nil {
+		return rc, err
+	}
+	for _, delay := range retryBackoff {
+		if !isRetryableCode(rc) {
+			break
+		}
+		time.Sleep(delay)
+		rc, err = c.doOnce(cmd, args...)
+		if err != nil {
+			return rc, err
+		}
+	}
+	return rc, nil
+}
+
+// doOnce makes a single POST to the HestiaCP API without retry.
+func (c *Client) doOnce(cmd string, args ...string) (string, error) {
 	form := url.Values{}
 	form.Set("hash", c.accessKey)
 	form.Set("cmd", cmd)
@@ -477,26 +514,10 @@ func (c *Client) CreateMailSSL(user, domain string) error {
 	// Delete first so we always copy the current web cert (not a stale copy).
 	c.do("v-delete-mail-domain-ssl", user, domain) //nolint:errcheck
 	certDir := fmt.Sprintf("/home/%s/conf/web/%s/ssl", user, domain)
-
-	// Retry up to 3 times with backoff: the cert directory may not be written
-	// immediately after LE issuance (E_INVALID=2) or the mail domain may not
-	// yet be fully configured (E_NOTEXIST=3).
-	var rc string
-	var err error
-	for attempt := 0; attempt < 3; attempt++ {
-		if attempt > 0 {
-			time.Sleep(time.Duration(attempt*10) * time.Second)
-			c.do("v-delete-mail-domain-ssl", user, domain) //nolint:errcheck
-		}
-		rc, err = c.do("v-add-mail-domain-ssl", user, domain, certDir)
-		if err != nil {
-			return err
-		}
-		var code int
-		fmt.Sscanf(rc, "%d", &code)
-		if code != 2 && code != 3 {
-			break
-		}
+	// Retry is handled automatically by do() on E_INVALID/E_NOTEXIST.
+	rc, err := c.do("v-add-mail-domain-ssl", user, domain, certDir)
+	if err != nil {
+		return err
 	}
 	return checkRC(rc, 4)
 }
