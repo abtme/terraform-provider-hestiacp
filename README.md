@@ -60,7 +60,7 @@ export HESTIACP_ACCESS_KEY="ACCESSKEY:SECRETKEY"
 terraform {
   required_providers {
     hestiacp = {
-      source  = "registry.terraform.io/your-org/hestiacp"
+      source  = "registry.terraform.io/abtme/hestiacp"
       version = "~> 0.1"
     }
   }
@@ -139,7 +139,6 @@ Full list in `internal/client/client.go`.
 
 ## Publishing to the Terraform Registry
 
-1. Replace `your-org` with your actual GitHub org/username throughout the codebase.
-2. Tag a release: `git tag v0.1.0 && git push origin v0.1.0`
-3. GoReleaser (`.goreleaser.yml`) will build cross-platform binaries automatically via GitHub Actions.
-4. Follow the [Terraform Registry publishing guide](https://developer.hashicorp.com/terraform/registry/providers/publishing).
+1. Tag a release: `git tag v0.1.0 && git push origin v0.1.0`
+2. GoReleaser (`.goreleaser.yml`) will build cross-platform binaries automatically via GitHub Actions.
+3. Follow the [Terraform Registry publishing guide](https://developer.hashicorp.com/terraform/registry/providers/publishing).

@@ -1,0 +1,29 @@
+# Compiled provider binary
+terraform-provider-hestiacp
+
+# Go build cache
+.go/
+
+# Local test directory (contains tfstate with credentials)
+test-local/
+
+# Internal planning and CI files
+PLAN.md
+gitlab-ci.yml
+
+# Claude Code local settings
+.claude/
+
+# Terraform state and overrides
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# IDE
+.idea/
+.vscode/
