@@ -137,8 +137,18 @@ make testacc
 
 Full list in `internal/client/client.go`.
 
-## Publishing to the Terraform Registry
+## Published
 
-1. Tag a release: `git tag v0.1.0 && git push origin v0.1.0`
-2. GoReleaser (`.goreleaser.yml`) will build cross-platform binaries automatically via GitHub Actions.
-3. Follow the [Terraform Registry publishing guide](https://developer.hashicorp.com/terraform/registry/providers/publishing).
+Live on the Terraform Registry:
+[registry.terraform.io/providers/abtme/hestiacp](https://registry.terraform.io/providers/abtme/hestiacp).
+
+### Cutting a new release
+
+1. Tag a release: `git tag v0.1.1 && git push github v0.1.1`
+2. The `.github/workflows/release.yml` GitHub Actions workflow (on `arc-runners-abtme`)
+   builds cross-platform binaries via GoReleaser, signs them with the GPG key
+   stored in OpenBao (`secret/terraform-registry/gpg`, fetched fresh via GitHub
+   OIDC at release time), and publishes the GitHub Release.
+3. The Registry picks up the new release automatically via its GitHub webhook —
+   no manual publish step needed per release, only for the initial "Publish
+   provider" setup.
