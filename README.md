@@ -96,7 +96,7 @@ make install
 cat > ~/.terraformrc <<'EOF'
 provider_installation {
   dev_overrides {
-    "registry.terraform.io/your-org/hestiacp" = "/home/<you>/.terraform.d/plugins/…"
+    "registry.terraform.io/abtme/hestiacp" = "/home/<you>/.terraform.d/plugins/…"
   }
   direct {}
 }

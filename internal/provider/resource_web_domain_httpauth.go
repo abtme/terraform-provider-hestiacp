@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/your-org/terraform-provider-hestiacp/internal/client"
+	"github.com/abtme/terraform-provider-hestiacp/internal/client"
 )
 
 var _ resource.Resource = &WebDomainHTTPAuthResource{}

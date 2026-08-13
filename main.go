@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"github.com/your-org/terraform-provider-hestiacp/internal/provider"
+	"github.com/abtme/terraform-provider-hestiacp/internal/provider"
 )
 
 // Run "go generate" to regenerate docs.
@@ -23,7 +23,7 @@ func main() {
 	flag.Parse()
 
 	opts := providerserver.ServeOpts{
-		Address: "registry.terraform.io/your-org/hestiacp",
+		Address: "registry.terraform.io/abtme/hestiacp",
 		Debug:   debug,
 	}
 

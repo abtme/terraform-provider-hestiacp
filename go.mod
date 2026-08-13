@@ -1,4 +1,4 @@
-module github.com/your-org/terraform-provider-hestiacp
+module github.com/abtme/terraform-provider-hestiacp
 
 go 1.25.0
 

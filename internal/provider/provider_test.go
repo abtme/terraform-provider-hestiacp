@@ -7,7 +7,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/your-org/terraform-provider-hestiacp/internal/provider"
+	"github.com/abtme/terraform-provider-hestiacp/internal/provider"
 )
 
 // testAccProtoV6ProviderFactories is used by acceptance tests.

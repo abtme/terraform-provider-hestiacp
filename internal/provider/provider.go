@@ -10,7 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/your-org/terraform-provider-hestiacp/internal/client"
+	"github.com/abtme/terraform-provider-hestiacp/internal/client"
 )
 
 // Ensure HestiacpProvider satisfies the provider.Provider interface.
