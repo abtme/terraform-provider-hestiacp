@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   goreleaser:
@@ -23,12 +24,44 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
-      - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@v6
-        id: import_gpg
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.PASSPHRASE }}
+      # Fetches the GPG signing key fresh from OpenBao on every run via
+      # GitHub's own OIDC token - no secret ever stored in GitHub. The
+      # jwt-github auth mount/role is scoped to this repo's tag pushes
+      # only (see auth/jwt-github/role/terraform-provider-hestiacp-release).
+      - name: Fetch GPG key from OpenBao and prime gpg-agent
+        env:
+          BAO_ADDR: https://vault.turnbull.uk:8200
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL "https://github.com/openbao/openbao/releases/download/v2.6.0/openbao_2.6.0_linux_amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/bin" bao
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+
+          JWT=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${BAO_ADDR}" \
+            | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
+
+          BAO_TOKEN=$(bao write -field=token auth/jwt-github/login \
+            role=terraform-provider-hestiacp-release jwt="$JWT")
+          export VAULT_TOKEN="$BAO_TOKEN"
+
+          bao kv get -field=private-key secret/terraform-registry/gpg | gpg --batch --import
+          PASSPHRASE=$(bao kv get -field=passphrase secret/terraform-registry/gpg)
+          FINGERPRINT=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
+
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          echo "default-cache-ttl 1200" >> ~/.gnupg/gpg-agent.conf
+          echo "max-cache-ttl 1200" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --reload gpg-agent
+
+          # Priming sign: caches the unlocked key's passphrase in the running
+          # gpg-agent so GoReleaser's later --batch (non-interactive) sign
+          # calls succeed without needing the passphrase passed again.
+          echo "priming" | gpg --batch --pinentry-mode loopback \
+            --passphrase "$PASSPHRASE" --local-user "$FINGERPRINT" \
+            --detach-sign --output /dev/null -
+
+          echo "GPG_FINGERPRINT=$FINGERPRINT" >> "$GITHUB_ENV"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -36,4 +69,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+          GPG_FINGERPRINT: ${{ env.GPG_FINGERPRINT }}
