@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -112,6 +113,14 @@ func (c *Client) do(cmd string, args ...string) (string, error) {
 	return rc, nil
 }
 
+// debugHTTP reports whether HESTIACP_DEBUG_HTTP is set, enabling verbose
+// request/response logging to stderr (visible via TF_LOG=debug or above,
+// since the plugin SDK forwards plugin stderr into Terraform/OpenTofu's own
+// log stream). The access key is always redacted.
+func debugHTTP() bool {
+	return os.Getenv("HESTIACP_DEBUG_HTTP") != ""
+}
+
 // doOnce makes a single POST to the HestiaCP API without retry.
 func (c *Client) doOnce(cmd string, args ...string) (string, error) {
 	form := url.Values{}
@@ -123,15 +132,34 @@ func (c *Client) doOnce(cmd string, args ...string) (string, error) {
 		form.Set(fmt.Sprintf("arg%d", i+1), a)
 	}
 
+	if debugHTTP() {
+		redacted := url.Values{}
+		for k, v := range form {
+			redacted[k] = v
+		}
+		redacted.Set("hash", "[redacted]")
+		fmt.Fprintf(os.Stderr, "HESTIACP_DEBUG_HTTP: request cmd=%s form=%q\n", cmd, redacted.Encode())
+	}
+
 	resp, err := c.httpClient.Post(c.apiURL(), "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
+		if debugHTTP() {
+			fmt.Fprintf(os.Stderr, "HESTIACP_DEBUG_HTTP: request failed: %v\n", err)
+		}
 		return "", fmt.Errorf("HestiaCP API request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	if debugHTTP() {
+		fmt.Fprintf(os.Stderr, "HESTIACP_DEBUG_HTTP: response status=%s\n", resp.Status)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read HestiaCP response: %w", err)
+	}
+
+	if debugHTTP() {
+		fmt.Fprintf(os.Stderr, "HESTIACP_DEBUG_HTTP: response body=%q\n", strings.TrimSpace(string(body)))
 	}
 
 	return strings.TrimSpace(string(body)), nil
