@@ -199,6 +199,56 @@ func (c *Client) doJSON(cmd string, out interface{}, args ...string) error {
 	return nil
 }
 
+// reloadWebServer forces a real, synchronous, graceful nginx reload via the
+// HestiaCP API, bypassing HestiaCP's own deferred restart machinery for
+// callers where that machinery is known to be unreliable.
+//
+// This only matters for the SSL/Let's Encrypt path. Traced on srv2
+// 2026-09-02: v-add-web-domain, its alias/redirect siblings, and their
+// delete counterparts all call v-restart-web/v-restart-proxy with an empty
+// restart mode at the end of every invocation regardless of success —
+// which (confirmed live: a brand-new domain served HestiaCP's correct
+// per-domain "Coming Soon" placeholder immediately after v-add-web-domain
+// returned, with zero extra calls) already reloads nginx synchronously and
+// correctly. Those call sites do NOT need any help from this function.
+//
+// v-add-letsencrypt-domain is different: internally it calls
+// v-add-web-domain-ssl/v-update-web-domain-ssl with restart mode
+// "updatessl" specifically (see v-add-letsencrypt-domain around its
+// "updatessl" calls), which queues "v-restart-proxy ssl" onto the
+// 2-minute cron queue instead of reloading inline, and even once that
+// queue drains resolves to "service nginx upgrade" (nginx's graceful
+// binary-upgrade path) — this combination is what caused the multi-day SSL
+// issuance failure root-caused 2026-09-01 (see
+// docs/nginx-restart-reliability.md if present, or the project history).
+// A full `systemctl restart` was used to recover live in that incident,
+// but nothing in that investigation showed a plain reload was
+// insufficient — only that the queued/"upgrade" path was. A graceful
+// reload is standard, well-established practice for picking up renewed
+// certs (it's literally certbot's own default deploy-hook command) and
+// avoids dropping connections on every other domain sharing this nginx,
+// so use that here rather than a full restart.
+//
+// v-restart-service's own arg2 ("restart mode") is format-validated
+// server-side to one of: "", "yes", "no", "ssl", "reload", "updatessl",
+// "scheduled" (main.sh:is_restart_format_valid) — anything outside that
+// set is rejected with E_INVALID. Passing "" here hits the
+// `systemctl reload-or-restart nginx` branch, which — since nginx's own
+// systemd unit defines ExecReload — is a plain graceful reload, not a
+// restart; confirmed live (MainPID/ActiveEnterTimestamp unchanged across
+// the call, unlike the full-restart case where both changed).
+//
+// Never defer this: the calling Create/Delete only returns success once
+// this reload itself has succeeded, rather than trusting HestiaCP's own
+// queued/deferred path for an operation whose own success depends on it.
+func (c *Client) reloadWebServer() error {
+	rc, err := c.do("v-restart-service", "nginx")
+	if err != nil {
+		return err
+	}
+	return checkRC(rc)
+}
+
 // checkRC converts a HestiaCP numeric return-code string into an error.
 // rc = "0" means success; anything else is an error.
 // allowedExtra are codes treated as non-fatal (e.g. 3=not-found on delete).
@@ -534,15 +584,28 @@ func (c *Client) CreateSSL(user, domain, aliases string) error {
 	if err != nil {
 		return err
 	}
-	return checkRC(rc, 4) // 4 = already exists, treat as success
+	if err := checkRC(rc, 4); err != nil { // 4 = already exists, treat as success
+		return err
+	}
+	// This is the specific case that motivated reloadWebServer: HestiaCP's
+	// own post-issuance restart for this call is queued/unreliable — see its
+	// doc comment. Do not remove this without re-reading that history.
+	return c.reloadWebServer()
 }
 
 func (c *Client) DeleteSSL(user, domain string) error {
-	rc, err := c.do("v-delete-ssl", user, domain)
+	// Not "v-delete-ssl" - that command does not exist on HestiaCP (confirmed
+	// live 2026-09-02: the API returns E_FORBIDDEN for it, meaning every
+	// hestiacp_ssl destroy was silently failing). The real command is
+	// v-delete-web-domain-ssl, options "USER DOMAIN [RESTART]".
+	rc, err := c.do("v-delete-web-domain-ssl", user, domain)
 	if err != nil {
 		return err
 	}
-	return checkRC(rc, 3)
+	if err := checkRC(rc, 3); err != nil {
+		return err
+	}
+	return c.reloadWebServer()
 }
 
 func (c *Client) CreateMailSSL(user, domain string) error {
